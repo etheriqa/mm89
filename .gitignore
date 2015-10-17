@@ -1,0 +1,4 @@
+*.d
+*.jar
+*.o
+/solution
