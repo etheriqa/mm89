@@ -17,7 +17,7 @@ visualize: $(TARGET) $(TESTER)
 	java -jar $(TESTER) -exec ./$(TARGET) -vis -seed $(SEED)
 
 batch100: $(TARGET) $(TESTER)
-	parallel --jobs `nproc` java -jar $(TESTER) -exec ./$(TARGET) -seed ::: `seq 100` | tee /dev/stderr | grep Score | awk '{m+=$$3} END{print m}'
+	parallel --jobs `nproc` java -jar $(TESTER) -exec ./$(TARGET) -seed ::: `seq 100` | tee /dev/stderr | grep Score | awk '{m+=$$3} END{print "Total Score = "m}'
 
 $(TARGET): main.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $^

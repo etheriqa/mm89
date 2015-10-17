@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <queue>
 #include <random>
@@ -125,14 +126,13 @@ public:
   size_type countNumberOfFixing(const Maze& original) const;
   real_type calculateEnergy() const;
   template <typename PRNG>
-  State propose(const Maze& maze, PRNG& random) const;
+  State propose(const Maze& original, PRNG& random) const;
 private:
   template <typename PRNG>
-  Path sampleSubpath(PRNG& random) const;
-  template <typename PRNG>
   std::tuple<Path, Path> sampleSubpathPair(PRNG& random) const;
-  void cutSubpath(const Maze& original, const Path& subpath);
-  void connectSubpathPair(const Path& leading, const Path& trailing);
+  template <typename PRNG>
+  void connectSubpathPair(const Path& leading, const Path& trailing, PRNG& random);
+  void clean(const Maze& original);
 };
 
 class MazeFixing {
@@ -404,29 +404,32 @@ State::countNumberOfFixing(const Maze& original) const {
 
 real_type
 State::calculateEnergy() const {
-  real_type energy = 0;
+  Grid<bool> contribution(maze_.width(), maze_.height(), false);
   for (const auto subpath : maze_.searchComplete()) {
-    energy -= subpath.size() - 2;
+    for (const auto& v : subpath) {
+      if (maze_.at(v) != Cell::outside) {
+        contribution.at(v) = true;
+      }
+    }
+  }
+  real_type energy = 0;
+  for (const auto& v : contribution) {
+    if (contribution.at(v)) {
+      energy -= 1;
+    }
   }
   return energy;
 }
 
 template <typename PRNG>
 State
-State::propose(const Maze& maze, PRNG& random) const {
+State::propose(const Maze& original, PRNG& random) const {
   auto state = *this;
-  state.cutSubpath(maze, state.sampleSubpath(random));
   Path leading, trailing;
   std::tie(leading, trailing) = state.sampleSubpathPair(random);
-  state.connectSubpathPair(leading, trailing);
+  state.connectSubpathPair(leading, trailing, random);
+  state.clean(original);
   return state;
-}
-
-template <typename PRNG>
-Path
-State::sampleSubpath(PRNG& random) const {
-  const auto subpaths = maze_.searchComplete();
-  return subpaths[std::uniform_int_distribution<>(0, subpaths.size() - 1)(random)];
 }
 
 template <typename PRNG>
@@ -434,21 +437,23 @@ std::tuple<Path, Path>
 State::sampleSubpathPair(PRNG& random) const {
   const auto leadings = maze_.searchLeading();
   const auto trailings = maze_.searchTrailing();
-  return std::make_tuple(
-    leadings[std::uniform_int_distribution<>(0, leadings.size() - 1)(random)],
-    trailings[std::uniform_int_distribution<>(0, trailings.size() - 1)(random)]
-  );
-}
-
-void
-State::cutSubpath(const Maze& original, const Path& subpath) {
-  for (const auto& v : subpath) {
-    maze_.at(v) = original.at(v);
+  while (true) {
+    const auto leading =
+      leadings[std::uniform_int_distribution<>(0, leadings.size() - 1)(random)];
+    const auto trailing =
+      trailings[std::uniform_int_distribution<>(0, trailings.size() - 1)(random)];
+    const auto distance = std::abs(leading.back().x() - trailing.back().x()) +
+                          std::abs(leading.back().y() - trailing.back().y());
+    if (distance > 10) {
+      continue;
+    }
+    return std::make_tuple(leading, trailing);
   }
 }
 
+template <typename PRNG>
 void
-State::connectSubpathPair(const Path& leading, const Path& trailing) {
+State::connectSubpathPair(const Path& leading, const Path& trailing, PRNG& random) {
   VertexSet visited;
   for (const auto& v : leading) {
     visited.insert(v);
@@ -461,8 +466,9 @@ State::connectSubpathPair(const Path& leading, const Path& trailing) {
     auto subpath = queue.front();
     queue.pop();
     const auto& v0 = subpath.back();
-    // TODO choose at random a adjacent vertex
-    for (const auto v1 : v0.adjacents(maze_.width(), maze_.height())) {
+    auto adjacents = v0.adjacents(maze_.width(), maze_.height());
+    std::shuffle(adjacents.begin(), adjacents.end(), random);
+    for (const auto& v1 : adjacents) {
       subpath.push_back(v1);
       if (v1 == *trailing.rbegin()) {
         subpath.push_back(*(trailing.rbegin() + 1));
@@ -486,13 +492,28 @@ State::connectSubpathPair(const Path& leading, const Path& trailing) {
   }
 }
 
+void
+State::clean(const Maze& original) {
+  Grid<bool> contribution(maze_.width(), maze_.height(), false);
+  for (const auto subpath : maze_.searchComplete()) {
+    for (const auto& v : subpath) {
+      contribution.at(v) = true;
+    }
+  }
+  for (const auto& v : contribution) {
+    if (!contribution.at(v)) {
+      maze_.at(v) = original.at(v);
+    }
+  }
+}
+
 std::vector<std::string>
 MazeFixing::improve(const std::vector<std::string>& cells, size_type max_fixing) {
   std::mt19937_64 random(0);
   const auto maze = buildMaze(cells);
   State state(maze);
   auto energy = state.calculateEnergy();
-  for (size_type i = 0; i < 300; i++) {
+  for (size_type i = 0; i < 500; i++) {
     const auto new_state = state.propose(maze, random);
     const auto new_energy = new_state.calculateEnergy();
     if (new_energy > energy) {
