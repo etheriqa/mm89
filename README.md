@@ -1,7 +1,7 @@
 MM89 MazeFixing
 ===============
 
-https://community.topcoder.com/tc?module=MatchDetails&rd=16494
+http://community.topcoder.com/longcontest/stats/?module=ViewOverview&rd=16494
 
 Terminology
 -----------
